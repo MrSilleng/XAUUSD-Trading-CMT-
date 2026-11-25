@@ -1,0 +1,150 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny all reads and writes by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ─── Global Primitives ───
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ─── Validation Blueprints ───
+    function isValidUserPreferences(data, userId) {
+      return data.keys().hasAll([
+          'ownerId', 'riskProfile', 'theme', 'tvSymbol', 'minConf',
+          'useSearchGrounding', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'riskProfile', 'theme', 'tvSymbol', 'minConf',
+          'useSearchGrounding', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && data.riskProfile is string
+        && data.riskProfile.size() <= 20
+        && data.riskProfile in ['Conservative', 'Balanced', 'Aggressive']
+        && data.theme is string
+        && data.theme.size() <= 10
+        && data.theme in ['dark', 'light']
+        && data.tvSymbol is string
+        && data.tvSymbol.size() >= 1
+        && data.tvSymbol.size() <= 40
+        && data.minConf is number
+        && data.minConf >= 40
+        && data.minConf <= 100
+        && data.useSearchGrounding is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSignalRecord(data, userId, signalId) {
+      return data.keys().hasAll([
+          'ownerId', 'signalId', 'symbol', 'timeframe', 'riskProfile', 'bias',
+          'confidence', 'spotPriceAtSignal', 'entryPrice', 'entryZoneMin',
+          'entryZoneMax', 'stopLoss', 'takeProfit1', 'takeProfit2',
+          'riskRewardRatio', 'setupType', 'technicalSummary',
+          'invalidationCondition', 'modelUsed', 'generatedAt',
+          'macroCatalysts', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'signalId', 'symbol', 'timeframe', 'riskProfile', 'bias',
+          'confidence', 'spotPriceAtSignal', 'entryPrice', 'entryZoneMin',
+          'entryZoneMax', 'stopLoss', 'takeProfit1', 'takeProfit2',
+          'riskRewardRatio', 'setupType', 'technicalSummary',
+          'invalidationCondition', 'modelUsed', 'generatedAt',
+          'macroCatalysts', 'createdAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isValidId(data.signalId)
+        && data.signalId == signalId
+        && data.symbol is string && data.symbol.size() >= 1 && data.symbol.size() <= 16
+        && data.timeframe is string && data.timeframe.size() <= 8
+        && data.timeframe in ['5m', '15m', '30m', '1h', '4h', '1d']
+        && data.riskProfile is string && data.riskProfile.size() <= 20
+        && data.riskProfile in ['Conservative', 'Balanced', 'Aggressive']
+        && data.bias is string && data.bias.size() <= 20
+        && data.bias in ['STRONG BUY', 'BUY', 'NEUTRAL', 'SELL', 'STRONG SELL']
+        && data.confidence is number && data.confidence >= 0 && data.confidence <= 100
+        && data.spotPriceAtSignal is number && data.spotPriceAtSignal > 0
+        && data.entryPrice is number && data.entryPrice > 0
+        && data.entryZoneMin is number && data.entryZoneMin > 0
+        && data.entryZoneMax is number && data.entryZoneMax > 0
+        && data.stopLoss is number && data.stopLoss > 0
+        && data.takeProfit1 is number && data.takeProfit1 > 0
+        && data.takeProfit2 is number && data.takeProfit2 > 0
+        && data.riskRewardRatio is string && data.riskRewardRatio.size() <= 24
+        && data.setupType is string && data.setupType.size() <= 120
+        && data.technicalSummary is string && data.technicalSummary.size() <= 2000
+        && data.invalidationCondition is string && data.invalidationCondition.size() <= 500
+        && data.modelUsed is string && data.modelUsed.size() <= 64
+        && data.generatedAt is string && data.generatedAt.size() <= 40
+        && data.macroCatalysts is list
+        && data.macroCatalysts.size() <= 6
+        && (data.macroCatalysts.size() == 0 || (data.macroCatalysts[0] is string && data.macroCatalysts[0].size() <= 300))
+        && data.createdAt is timestamp;
+    }
+
+    // ─── User Preferences Collection ───
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPreferences(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPreferences(incoming(), userId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'riskProfile', 'theme', 'tvSymbol', 'minConf', 'useSearchGrounding', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      // ─── User Saved Signals Subcollection ───
+      match /signals/{signalId} {
+        allow get: if isValidId(userId) && isValidId(signalId) && isOwner(userId);
+        allow list: if isValidId(userId)
+          && isOwner(userId)
+          && existing().ownerId == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(signalId)
+          && isOwner(userId)
+          && isValidSignalRecord(incoming(), userId, signalId)
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(userId)
+          && isValidId(signalId)
+          && isOwner(userId)
+          && existing().ownerId == request.auth.uid;
+      }
+    }
+  }
+}

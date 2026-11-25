@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "Per-user trading workspace preferences and SMC indicator settings.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "riskProfile": {
+          "type": "string",
+          "enum": ["Conservative", "Balanced", "Aggressive"],
+          "maxLength": 20
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["dark", "light"],
+          "maxLength": 10
+        },
+        "tvSymbol": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "minConf": {
+          "type": "number"
+        },
+        "useSearchGrounding": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "riskProfile",
+        "theme",
+        "tvSymbol",
+        "minConf",
+        "useSearchGrounding",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SignalRecord": {
+      "title": "SignalRecord",
+      "description": "Persisted Gemini AI XAUUSD trading signal record owned by a user.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "signalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "symbol": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "timeframe": {
+          "type": "string",
+          "enum": ["5m", "15m", "30m", "1h", "4h", "1d"],
+          "maxLength": 8
+        },
+        "riskProfile": {
+          "type": "string",
+          "enum": ["Conservative", "Balanced", "Aggressive"],
+          "maxLength": 20
+        },
+        "bias": {
+          "type": "string",
+          "enum": ["STRONG BUY", "BUY", "NEUTRAL", "SELL", "STRONG SELL"],
+          "maxLength": 20
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "spotPriceAtSignal": {
+          "type": "number"
+        },
+        "entryPrice": {
+          "type": "number"
+        },
+        "entryZoneMin": {
+          "type": "number"
+        },
+        "entryZoneMax": {
+          "type": "number"
+        },
+        "stopLoss": {
+          "type": "number"
+        },
+        "takeProfit1": {
+          "type": "number"
+        },
+        "takeProfit2": {
+          "type": "number"
+        },
+        "riskRewardRatio": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "setupType": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "technicalSummary": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "invalidationCondition": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "modelUsed": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "generatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "macroCatalysts": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "signalId",
+        "symbol",
+        "timeframe",
+        "riskProfile",
+        "bias",
+        "confidence",
+        "spotPriceAtSignal",
+        "entryPrice",
+        "entryZoneMin",
+        "entryZoneMax",
+        "stopLoss",
+        "takeProfit1",
+        "takeProfit2",
+        "riskRewardRatio",
+        "setupType",
+        "technicalSummary",
+        "invalidationCondition",
+        "modelUsed",
+        "generatedAt",
+        "macroCatalysts",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "Stores verified user trading preferences scoped strictly to the owning UID."
+    },
+    "/users/{userId}/signals/{signalId}": {
+      "schema": { "$ref": "#/entities/SignalRecord" },
+      "description": "Stores persisted Gemini AI XAUUSD trading signals for a specific user."
+    }
+  }
+}

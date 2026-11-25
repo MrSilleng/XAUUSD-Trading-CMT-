@@ -1,0 +1,6 @@
+{
+  "name": "Aurum Quant",
+  "description": "Live TradingView XAUUSD charts, real-time quantitative technical analytics, and Gemini-powered institutional gold trading signals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
