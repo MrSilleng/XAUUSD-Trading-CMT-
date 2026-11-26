@@ -278,8 +278,14 @@ export default function App() {
 
   const handleClearSignalLog = async () => {
     if (user) {
-      const ids = signalLog.map((s) => s.id);
-      await clearUserSignalsInFirestore(user.uid, ids);
+      try {
+        const ids = signalLog.map((s) => s.id);
+        await clearUserSignalsInFirestore(user.uid, ids);
+      } catch (err) {
+        setSignalError(
+          err instanceof Error ? err.message : 'Failed to clear cloud signal log.'
+        );
+      }
     } else {
       setSignalLog([]);
     }
