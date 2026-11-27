@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LogIn, LogOut, Moon, Sun } from 'lucide-react';
+import { Lock, LogIn, LogOut, Moon, Sun } from 'lucide-react';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
 import {
@@ -13,6 +13,7 @@ import {
   saveUserPreferences,
   subscribeUserSignals,
 } from './lib/firebaseSync';
+import { AccessGate } from './components/AccessGate';
 import { MarketAnalyticsGrid } from './components/MarketAnalyticsGrid';
 import { MultiTimeframeView } from './components/MultiTimeframeView';
 import {
@@ -74,6 +75,15 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const prefsHydratedRef = useRef<boolean>(false);
+
+  // App-level username/password gate (Bearer token stored strictly in React memory)
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [appUsername, setAppUsername] = useState<string | null>(null);
+  const [accessStatus, setAccessStatus] = useState<{
+    ready: boolean;
+    initialized: boolean;
+    envConfigured: boolean;
+  }>({ ready: false, initialized: true, envConfigured: false });
 
   const [signalLog, setSignalLog] = useState<AISignalResponse[]>(() => {
     try {
@@ -161,7 +171,39 @@ export default function App() {
     }
   }, [theme]);
 
-  // Persist Signal Log locally when signed out
+  const refreshAccessStatus = useCallback(async (token: string | null = sessionToken) => {
+    try {
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch('/api/auth/status', { headers });
+      const data = (await res.json()) as {
+        initialized?: boolean;
+        envConfigured?: boolean;
+        authenticated?: boolean;
+        username?: string | null;
+      };
+      setAccessStatus({
+        ready: true,
+        initialized: Boolean(data.initialized),
+        envConfigured: Boolean(data.envConfigured),
+      });
+      if (!data.authenticated && token) {
+        setSessionToken(null);
+        setAppUsername(null);
+      } else if (data.authenticated && data.username) {
+        setAppUsername(data.username);
+      }
+    } catch {
+      setAccessStatus((prev) => ({ ...prev, ready: true }));
+    }
+  }, [sessionToken]);
+
+  useEffect(() => {
+    refreshAccessStatus(null);
+    // Only check initial auth status once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist Signal Log locally when signed out of Firebase
   useEffect(() => {
     if (user) return;
     try {
@@ -171,26 +213,39 @@ export default function App() {
     }
   }, [signalLog, user]);
 
-  const fetchMarketSnapshot = useCallback(async (tf: TimeframeKey) => {
-    setMarketLoading(true);
-    setMarketError(null);
-    try {
-      const res = await fetch(`/api/market/xauusd?timeframe=${encodeURIComponent(tf)}`);
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || 'Failed to load XAUUSD market snapshot.');
+  const fetchMarketSnapshot = useCallback(
+    async (tf: TimeframeKey) => {
+      if (!sessionToken) return;
+      setMarketLoading(true);
+      setMarketError(null);
+      try {
+        const res = await fetch(`/api/market/xauusd?timeframe=${encodeURIComponent(tf)}`, {
+          headers: { Authorization: `Bearer ${sessionToken}` },
+        });
+        if (res.status === 401) {
+          setSessionToken(null);
+          setAppUsername(null);
+          await refreshAccessStatus(null);
+          return;
+        }
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || 'Failed to load XAUUSD market snapshot.');
+        }
+        setSnapshot(data as MarketSnapshotResponse);
+      } catch (err) {
+        setMarketError(
+          err instanceof Error ? err.message : 'Unable to reach live XAUUSD market feed.'
+        );
+      } finally {
+        setMarketLoading(false);
       }
-      setSnapshot(data as MarketSnapshotResponse);
-    } catch (err) {
-      setMarketError(
-        err instanceof Error ? err.message : 'Unable to reach live XAUUSD market feed.'
-      );
-    } finally {
-      setMarketLoading(false);
-    }
-  }, []);
+    },
+    [sessionToken, refreshAccessStatus]
+  );
 
   useEffect(() => {
+    if (!sessionToken) return;
     fetchMarketSnapshot(timeframe);
     const intervalId = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
@@ -198,9 +253,10 @@ export default function App() {
       }
     }, 15_000);
     return () => window.clearInterval(intervalId);
-  }, [timeframe, fetchMarketSnapshot]);
+  }, [timeframe, sessionToken, fetchMarketSnapshot]);
 
   const handleGenerateSignal = useCallback(async () => {
+    if (!sessionToken) return;
     if (activeTab !== 'terminal') {
       setActiveTab('terminal');
     }
@@ -223,7 +279,10 @@ export default function App() {
 
       const res = await fetch('/api/ai/signal', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
         body: JSON.stringify({
           timeframe,
           riskProfile,
@@ -231,6 +290,12 @@ export default function App() {
           smcContext: smcLines.join('\n'),
         }),
       });
+      if (res.status === 401) {
+        setSessionToken(null);
+        setAppUsername(null);
+        await refreshAccessStatus(null);
+        return;
+      }
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || 'Failed to generate Gemini AI signal.');
@@ -249,7 +314,16 @@ export default function App() {
     } finally {
       setSignalLoading(false);
     }
-  }, [activeTab, timeframe, riskProfile, useSearchGrounding, smcOverlay.summary, user]);
+  }, [
+    sessionToken,
+    activeTab,
+    timeframe,
+    riskProfile,
+    useSearchGrounding,
+    smcOverlay.summary,
+    user,
+    refreshAccessStatus,
+  ]);
 
   const handleSignIn = async () => {
     setAuthBusy(true);
@@ -318,12 +392,52 @@ export default function App() {
     setActiveTab('terminal');
   };
 
+  const handleLockTerminal = async () => {
+    const token = sessionToken;
+    setSessionToken(null);
+    setAppUsername(null);
+    setSnapshot(null);
+    if (token) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // Ignore network errors on logout
+      }
+    }
+    await refreshAccessStatus(null);
+  };
+
   const navItems: { id: WorkspaceTab; label: string }[] = [
     { id: 'terminal', label: 'Terminal' },
     { id: 'mtf', label: 'Multi-Timeframe' },
     { id: 'calculator', label: 'Position Sizing' },
     { id: 'log', label: 'Signal Log' },
   ];
+
+  if (!accessStatus.ready) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0B0F17] text-slate-600 dark:text-slate-400 text-xs font-mono">
+        Initializing Aurum Quant...
+      </div>
+    );
+  }
+
+  if (!sessionToken) {
+    return (
+      <AccessGate
+        initialized={accessStatus.initialized}
+        envConfigured={accessStatus.envConfigured}
+        onAuthenticated={(token, username) => {
+          setSessionToken(token);
+          setAppUsername(username);
+          setAccessStatus((prev) => ({ ...prev, initialized: true }));
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-[#0B0F17] dark:text-slate-100">
@@ -453,6 +567,16 @@ export default function App() {
                 {authBusy ? 'Signing In...' : 'Sign In with Google'}
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={handleLockTerminal}
+              title={appUsername ? `Signed in as ${appUsername}` : 'Lock terminal'}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 whitespace-nowrap shrink-0"
+            >
+              <Lock className="w-3.5 h-3.5" aria-hidden="true" />
+              {appUsername ? `Lock (${appUsername})` : 'Lock'}
+            </button>
 
             <button
               type="button"

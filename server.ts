@@ -8,6 +8,13 @@ import {
   computeSmcOverlay,
   DEFAULT_SMC_SETTINGS,
 } from './src/lib/smcEngine.ts';
+import {
+  getAuthStatusHandler,
+  loginHandler,
+  logoutHandler,
+  requireAppAuth,
+  setupCredentialsHandler,
+} from './src/lib/serverAuth.ts';
 import type {
   AISignalResponse,
   Candle,
@@ -534,7 +541,12 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/market/xauusd', async (req: Request, res: Response) => {
+app.get('/api/auth/status', getAuthStatusHandler);
+app.post('/api/auth/setup', setupCredentialsHandler);
+app.post('/api/auth/login', loginHandler);
+app.post('/api/auth/logout', logoutHandler);
+
+app.get('/api/market/xauusd', requireAppAuth, async (req: Request, res: Response) => {
   const tfParam = String(req.query.timeframe || '15m') as TimeframeKey;
   const timeframe: TimeframeKey = tfParam in TIMEFRAME_MAP ? tfParam : '15m';
 
@@ -547,7 +559,7 @@ app.get('/api/market/xauusd', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/ai/signal', async (req: Request, res: Response) => {
+app.post('/api/ai/signal', requireAppAuth, async (req: Request, res: Response) => {
   const timeframeRaw = String(req.body?.timeframe || '15m') as TimeframeKey;
   const timeframe: TimeframeKey = timeframeRaw in TIMEFRAME_MAP ? timeframeRaw : '15m';
   const riskProfileRaw = String(req.body?.riskProfile || 'Balanced') as RiskProfile;
@@ -791,6 +803,14 @@ RULES:
       status = 429;
       userMessage =
         'Gemini API rate limit reached. Please retry in a moment or check your quota in Settings > Secrets.';
+    } else if (
+      rawMsg.includes('UNAVAILABLE') ||
+      rawMsg.includes('503') ||
+      rawMsg.toLowerCase().includes('high demand')
+    ) {
+      status = 503;
+      userMessage =
+        'Gemini AI is temporarily experiencing high demand. Please click Retry Analysis in a few seconds.';
     }
 
     res.status(status).json({ error: userMessage });
