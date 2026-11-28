@@ -206,6 +206,7 @@ const TIMEFRAME_MAP: Record<
   TimeframeKey,
   { binance: string; yahooInterval: string; yahooRange: string }
 > = {
+  '1m': { binance: '1m', yahooInterval: '1m', yahooRange: '1d' },
   '5m': { binance: '5m', yahooInterval: '5m', yahooRange: '5d' },
   '15m': { binance: '15m', yahooInterval: '15m', yahooRange: '5d' },
   '30m': { binance: '30m', yahooInterval: '30m', yahooRange: '10d' },
@@ -438,7 +439,7 @@ async function buildMarketSnapshot(timeframe: TimeframeKey): Promise<MarketSnaps
     return cached.data;
   }
 
-  const allTimeframesList: TimeframeKey[] = ['5m', '15m', '30m', '1h', '4h', '1d'];
+  const allTimeframesList: TimeframeKey[] = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
 
   const [{ candles, sourceFeed }, macro, keyLevels, allTfRaw] = await Promise.all([
     getCandlesForTimeframe(timeframe),

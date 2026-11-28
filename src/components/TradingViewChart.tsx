@@ -23,6 +23,7 @@ interface TradingViewChartProps {
 }
 
 const TV_INTERVAL_MAP: Record<TimeframeKey, string> = {
+  '1m': '1',
   '5m': '5',
   '15m': '15',
   '30m': '30',
@@ -32,6 +33,7 @@ const TV_INTERVAL_MAP: Record<TimeframeKey, string> = {
 };
 
 const TIMEFRAMES: { key: TimeframeKey; label: string }[] = [
+  { key: '1m', label: '1m' },
   { key: '5m', label: '5m' },
   { key: '15m', label: '15m' },
   { key: '30m', label: '30m' },
